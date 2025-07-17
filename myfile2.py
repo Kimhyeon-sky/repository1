@@ -1,61 +1,42 @@
 import streamlit as st
 import pandas as pd
-import folium
-from folium import Map, CircleMarker
-from streamlit_folium import st_folium
-from geopy.geocoders import Nominatim
-import re
-import time
 
-st.title("2025년 5월 기준 연령별 인구 현황 - 지도 시각화")
+# CSV 파일 업로드
+st.title("2025년 5월 기준 연령별 인구 현황")
 
-# 데이터 불러오기
-df = pd.read_csv("202505_202505_연령별인구현황_월간.csv", encoding='euc-kr')
+#uploaded_file = st.file_uploader("CSV 파일을 업로드하세요 (EUC-KR 인코딩)", type="csv")
 
-# 괄호 안 숫자 제거 (행정구역)
-def clean_region_name(name):
-    return re.sub(r"\(.*?\)", "", name).strip()
+if True:
+    df = pd.read_csv("202505_202505_연령별인구현황_월간.csv", encoding='euc-kr')
 
-df['행정구역'] = df['행정구역'].apply(clean_region_name)
+    # 데이터 전처리
+    df['총인구수'] = df['2025년05월_계_총인구수'].str.replace(',', '').astype(int)
+    age_columns = [col for col in df.columns if col.startswith('2025년05월_계_') and ('세' in col or '100세 이상' in col)]
+    new_columns = []
+    for col in age_columns:
+        if '100세 이상' in col:
+            new_columns.append('100세 이상')
+        else:
+            new_columns.append(col.replace('2025년05월_계_', '').replace('세', '') + '세')
+    df_age = df[['행정구역', '총인구수'] + age_columns].copy()
+    df_age.columns = ['행정구역', '총인구수'] + new_columns
 
-# 총인구수 숫자 변환
-df['총인구수'] = df['2025년05월_계_총인구수'].str.replace(',', '').astype(int)
+    # 상위 5개 행정구역 추출
+    top5_df = df_age.sort_values(by='총인구수', ascending=False).head(5)
 
-# 상위 5개 지역 추출
-top5_df = df.sort_values(by='총인구수', ascending=False).head(5)
+    # 원본 데이터 출력
+    st.subheader("📊 원본 데이터 (상위 5개 행정구역)")
+    st.dataframe(top5_df)
 
-# 지오코딩 (위경도 변환)
-geolocator = Nominatim(user_agent="population-map")
-def geocode_address(addr):
-    try:
-        location = geolocator.geocode(f"{addr}, 대한민국")
-        if location:
-            return (location.latitude, location.longitude)
-    except:
-        return None
-    return None
+    # 선그래프 출력
+    st.subheader("📈 상위 5개 행정구역 연령별 인구 변화")
+    age_columns_only = top5_df.columns[2:]
 
-with st.spinner('행정구역 위치 찾는 중... (조금 기다려주세요)'):
-    time.sleep(1)
-    top5_df['위도경도'] = top5_df['행정구역'].apply(geocode_address)
-
-# 지도 만들기
-m = Map(location=[36.5, 127.8], zoom_start=7)
-
-# 원 그리기 (핑크색, 반투명)
-for _, row in top5_df.iterrows():
-    if row['위도경도'] is not None:
-        lat, lon = row['위도경도']
-        CircleMarker(
-            location=[lat, lon],
-            radius=row['총인구수'] / 20000,  # 인구수에 따라 크기 조절
-            color='pink',
-            fill=True,
-            fill_color='pink',
-            fill_opacity=0.4,
-            tooltip=f"{row['행정구역']} (인구 {row['총인구수']:,}명)"
-        ).add_to(m)
-
-# Streamlit에서 folium 보여주기
-st.subheader("📍 상위 5개 행정구역 인구 분포 (지도)")
-st_data = st_folium(m, width=700, height=500)
+    for index, row in top5_df.iterrows():
+        st.write(f"### {row['행정구역']}")
+        age_data = row[2:].astype(str).str.replace(',', '').astype(int)
+        age_df = pd.DataFrame({
+            '연령': age_columns_only,
+            '인구수': age_data.values
+        }).set_index('연령')
+        st.line_chart(age_df)
